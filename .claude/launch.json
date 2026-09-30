@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ua-radar",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 8787
+    }
+  ]
+}

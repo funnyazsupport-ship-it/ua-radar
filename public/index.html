@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UA-RADAR — мапа повітряних тривог</title>
+<meta name="description" content="Мапа повітряних тривог України: стан по областях, оцінка класу загрози, напрямок підльоту, лінія фронту.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23ff9d00' stroke-width='2'/><circle cx='16' cy='16' r='4' fill='%23ff2d55'/><path d='M16 16 L16 3' stroke='%2300e5a0' stroke-width='2'/></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/app.css?v=47">
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-radar"><span></span><span></span><span></span><i></i></div>
+  <div class="boot-text">UA-RADAR</div>
+  <div class="boot-sub" id="bootSub">ініціалізація…</div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true"><i></i></div>
+    <div class="brand-text">
+      <strong>UA-RADAR</strong>
+      <span>мапа повітряних тривог</span>
+    </div>
+  </div>
+
+  <div class="threat-level" id="threatLevel" data-level="0">
+    <div class="tl-bar"><i></i><i></i><i></i><i></i></div>
+    <div class="tl-text">
+      <b id="tlLabel">завантаження…</b>
+      <span id="tlSub">—</span>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi" id="kpiAlerts"><b>—</b><span>тривоги</span></div>
+    <div class="kpi" id="kpiPop"><b>—</b><span>людей у зоні</span></div>
+    <div class="kpi" id="kpiEta"><b>—</b><span>мін. підліт</span></div>
+  </div>
+
+  <div class="topbar-actions">
+    <button class="btn icon" id="btnSound" title="Звукове оповіщення про нові тривоги" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 9v6h3l5 4V5L7 9H4z" fill="currentColor"/><path id="soundWaves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+    </button>
+    <button class="btn icon" id="btnFit" title="Показати всю Україну (клавіша F)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg>
+    </button>
+    <div class="conn" id="conn" data-state="wait"><i></i><span id="connText">зʼєднання…</span></div>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ЛІВА ПАНЕЛЬ -->
+  <aside class="panel left" id="panelLeft">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="alerts" role="tab">Тривоги</button>
+      <button class="tab" data-tab="targets" role="tab">Цілі<i class="tab-badge" id="badgeTargets"></i></button>
+      <button class="tab" data-tab="monitor" role="tab">Монітор</button>
+      <button class="tab" data-tab="log" role="tab">Журнал</button>
+    </div>
+
+    <div class="watch-bar" id="watchBar" hidden></div>
+
+    <div class="tab-body" id="tabAlerts">
+      <div class="search">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input type="search" id="regionSearch" placeholder="область або район…" autocomplete="off">
+      </div>
+      <div class="list" id="regionList"></div>
+    </div>
+
+    <div class="tab-body hidden" id="tabTargets">
+      <div class="hint">
+        Цілі — з доповідей каналів моніторингу. Положення між доповідями
+        <b>рахується</b> за швидкістю класу, а не спостерігається.
+      </div>
+      <div class="list" id="targetList"></div>
+    </div>
+
+    <div class="tab-body hidden" id="tabMonitor">
+      <div class="src-bar" id="srcBar"></div>
+      <div class="ai-box" id="aiBox" hidden></div>
+      <div class="list" id="feedList"></div>
+    </div>
+
+    <div class="tab-body hidden" id="tabLog">
+      <div class="hint">Журнал веде сервер, він зберігається між перезапусками.</div>
+      <div class="list" id="eventList"></div>
+    </div>
+  </aside>
+
+  <!-- МАПА -->
+  <section class="map-wrap">
+    <div id="map"></div>
+
+    <div class="radar-sweep" id="radarSweep" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+
+    <div class="map-banner" id="mapBanner" hidden>
+      <span id="mapBannerText"></span>
+    </div>
+
+    <div class="legend" id="legend">
+      <button class="legend-toggle" id="legendToggle" aria-expanded="true">Легенда</button>
+      <div class="legend-body" id="legendBody">
+        <div class="legend-group">
+          <span class="lg-title">Рівень тривоги</span>
+          <div class="lg-row"><i class="sw red"></i> червоний — ракетна небезпека</div>
+          <div class="lg-row"><i class="sw yellow"></i> жовтий — загроза БпЛА</div>
+          <div class="lg-row"><i class="sw alert"></i> тривога, тип не вказано</div>
+          <div class="lg-row"><i class="sw calm"></i> відбій</div>
+          <div class="lg-row"><i class="sw occ"></i> окупована територія</div>
+        </div>
+        <div class="legend-group" id="legendThreats">
+          <span class="lg-title">Класи цілей</span>
+        </div>
+        <div class="legend-note">
+          Цілі — з доповідей каналів; положення між доповідями
+          <b>розраховане</b>, не спостережене.
+        </div>
+      </div>
+    </div>
+
+    <div class="layers" id="layers">
+      <button class="layer-btn active" data-layer="alerts">Тривоги</button>
+      <button class="layer-btn active" data-layer="raions">Райони</button>
+      <button class="layer-btn active" data-layer="contacts">Цілі (монітор)</button>
+      <button class="layer-btn active" data-layer="front">Лінія фронту</button>
+      <button class="layer-btn active" data-layer="cities">Міста</button>
+      <button class="layer-btn" data-layer="npp">АЕС</button>
+      <button class="layer-btn" data-layer="origins">Зони пуску</button>
+      <button class="layer-btn active" data-layer="labels">Підписи</button>
+      <button class="layer-btn" data-layer="detail">Деталі (OSM)</button>
+    </div>
+
+    <div class="sim-bar" id="simBar">
+      <span class="sim-title">Симулятор</span>
+      <button class="btn sm" data-sim="light">Одиночні</button>
+      <button class="btn sm" data-sim="medium">Група</button>
+      <button class="btn sm" data-sim="massive">Масована</button>
+      <button class="btn sm danger hidden" id="simStop">Стоп</button>
+    </div>
+  </section>
+
+  <!-- ПРАВА ПАНЕЛЬ -->
+  <aside class="panel right hidden" id="panelRight">
+    <button class="panel-close" id="detailClose" aria-label="Закрити">×</button>
+    <div id="detailBody"></div>
+  </aside>
+</main>
+
+<div class="disclaimer" id="disclaimer">
+  <b>Це не радар.</b> Тривоги — з публічних API (<span id="srcName">vadimklimenko.com</span>),
+  фронт — deepstatemap.live, цілі — з доповідей відкритих каналів моніторингу
+  (ПС ЗСУ та ін.). Положення цілі між доповідями <b>рахується</b> за швидкістю
+  класу, а не спостерігається: реальна ціль маневрує, і її збивають.
+  Під час тривоги керуйтеся офіційними оповіщеннями ДСНС і йдіть в укриття.
+  <button id="disclaimerClose" aria-label="Приховати">Зрозуміло</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/js/config.js?v=47"></script>
+<script src="/js/threats.js?v=47"></script>
+<script src="/js/contacts.js?v=47"></script>
+<script src="/js/app.js?v=47"></script>
+</body>
+</html>
