@@ -351,6 +351,14 @@ function findPlace(token, oblast, kyivCtx, preferSite, occCtx) {
   add(PLACE_IDX.get(key));
   for (const st of stems(token)) add(PLACE_IDX.get(st));
   if (!cands.length) return null;
+
+  /** Скільки літер збігається на початку слова й назви. */
+  const prefixLen = (a, b) => {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    return i;
+  };
+
   let best = null;
   let bestScore = -Infinity;
   for (const p of cands) {
@@ -379,6 +387,15 @@ function findPlace(token, oblast, kyivCtx, preferSite, occCtx) {
       else if (d < 1e9) score -= 1;
     }
     if (score > bestScore) { bestScore = score; best = p; }
+  }
+
+  // Правило чергування і↔о потрібне для «Харкова» → Харків, але воно
+  // ж перетворює «блін» на «блон» і знаходить безлюдне село Блоне.
+  // Якщо початок слова майже не збігається з назвою, збіг слабкий —
+  // приймаємо його лише для помітних населених пунктів.
+  if (best) {
+    const maxPrefix = Math.max(...best.alt.map((a) => prefixLen(key, norm(a))));
+    if (maxPrefix < 4 && best.pop < 1000 && !best.adm && !best.site && !best.kyiv) return null;
   }
   return best;
 }
@@ -492,6 +509,13 @@ const STOP = new Set([
   'півночі', 'півдні', 'сектор', 'застосування', 'перейдіть', 'станом', 'зараз', 'особлива',
   'нові', 'новий', 'ще', 'один', 'два', 'три', 'над', 'біля', 'цим', 'знову', 'далі',
   'кияни', 'киян', 'киянам', 'групи', 'група', 'груп', 'треш', 'увага',
+  // вигуки й звертання: з великої літери на початку речення вони
+  // невідрізнимі від назви села
+  'блін', 'блть', 'бляха', 'добре', 'гаразд', 'слухайте', 'слухай', 'народ',
+  'люди', 'друзі', 'шановні', 'панове', 'хлопці', 'дівчата', 'схоже', 'схоже,',
+  'здається', 'можливо', 'ймовірно', 'нарешті', '知', 'так', 'ні', 'ок', 'окей',
+  'дякую', 'вибачте', 'перепрошую', 'отже', 'тобто', 'коротше', 'капець',
+  'жесть', 'ого', 'ага', 'ну', 'от', 'ось', 'тут', 'там', 'зараз', 'потім',
 ]);
 
 /**
@@ -749,6 +773,16 @@ function messageToContacts(msg) {
 
       const isSite = !!(anchor && anchor.site);
 
+      // Сумнівний розбір — це коли в сегменті немає ЖОДНОЇ опори:
+      // ні назви засобу, ні кількості, ні прийменника напрямку, а
+      // знайдене місце — крихітне село. Саме так «Блін…» ставало
+      // ціллю. Звичайні формати («1х на Яготин», «БпЛА на Ніжин»,
+      // «Бровари») опори мають і йдуть на мапу одразу.
+      const typedHere = !!detectType(seg);
+      const hasMarker = /\d|(^|\s)(на|повз|над|до|біля|поблизу|курс|курсом|від)(\s|$)|→/i.test(seg);
+      const tinyPlace = !!(anchor && !anchor.site && !anchor.raion && (anchor.pop || 0) < 5000);
+      const weak = !typedHere && !hasMarker && tinyPlace;
+
       contacts.push({
         id: `${msg.key}#${contacts.length}`,
         at: msg.at,
@@ -767,6 +801,7 @@ function messageToContacts(msg) {
         to: places.to ? { n: places.to.n, ll: places.to.ll, obl: places.to.obl } : null,
         site: isSite ? anchor.n : null,
         heading,
+        weak,
       });
 
       if (anchor && anchor.ll && !anchor.site) rememberPlace(anchor.ll, msg.at);
@@ -841,7 +876,18 @@ const state = {
   stats: {},
   // рядки, з яких правила нічого не витягли — черга для ШІ
   unparsed: [],
+  // сумнівні контакти, які чекають на перевірку моделлю
+  quarantine: [],
 };
+
+/** Чи вмикати перевірку моделлю. Без неї сумнівні йдуть одразу. */
+let reviewEnabled = false;
+function setReviewEnabled(on) {
+  reviewEnabled = !!on;
+}
+
+/** Скільки контакт чекає на вирок, перш ніж його пустять без нього. */
+const REVIEW_WAIT = 90_000;
 
 /** Рядок схожий на доповідь про обстановку, але правила його не взяли. */
 function looksOperational(text) {
@@ -880,6 +926,10 @@ async function poll() {
         state.messages.unshift(m);
           const got = messageToContacts(m);
         for (const c of got) {
+          if (c.weak && reviewEnabled) {
+            state.quarantine.push({ c, at: Date.now() });
+            continue;
+          }
           state.contacts.unshift(c);
           fresh++;
         }
@@ -923,6 +973,7 @@ function snapshot() {
     tracks: trackList,
     intercepts: interceptList,
     unparsed: state.unparsed.slice(0, 40).map((x) => ({ at: x.at, channel: x.channel, text: x.text, link: x.link })),
+    quarantine: state.quarantine.length,
     trackStats: tracks.stats(),
     channels: CHANNELS.map((c) => ({ id: c.id, name: c.name, scope: c.scope, trust: c.trust, msgs: state.stats[c.id] || 0, error: state.errors[c.id] || null })),
     contacts: shown.sort((a, b) => b.lastSeen - a.lastSeen),
@@ -933,6 +984,53 @@ function snapshot() {
       text: m.text.slice(0, 500), link: m.link,
     })),
   };
+}
+
+/** Сумнівні контакти на перевірку. */
+function takeForReview(limit) {
+  const out = state.quarantine.filter((q) => !q.sent).slice(0, limit);
+  for (const q of out) q.sent = true;
+  return out.map((q) => ({
+    id: q.c.id,
+    text: q.c.text,
+    place: q.c.to ? q.c.to.n : q.c.from ? q.c.from.n : null,
+    type: q.c.type,
+    action: q.c.action,
+  }));
+}
+
+/**
+ * Вирок моделі: {id: true|false}. Схвалені йдуть на мапу, відхилені
+ * зникають. Якщо модель мовчить — випускаємо самі, бо правила їх
+ * уже прийняли.
+ */
+function applyReview(verdicts) {
+  const now = Date.now();
+  let ok = 0;
+  let rejected = 0;
+  const keep = [];
+
+  for (const q of state.quarantine) {
+    const v = verdicts && Object.prototype.hasOwnProperty.call(verdicts, q.c.id) ? verdicts[q.c.id] : undefined;
+    if (v === true) {
+      state.contacts.unshift(q.c);
+      ok++;
+      continue;
+    }
+    if (v === false) {
+      rejected++;
+      continue;
+    }
+    if (now - q.at > REVIEW_WAIT) {
+      state.contacts.unshift(q.c);
+      ok++;
+      continue;
+    }
+    keep.push(q);
+  }
+
+  state.quarantine = keep.slice(-150);
+  return { approved: ok, rejected };
 }
 
 /** Черга нерозібраних рядків для ШІ; віддані позначаються як взяті. */
@@ -995,6 +1093,9 @@ module.exports = {
   loadPlaces,
   takeUnparsed,
   addAiContacts,
+  takeForReview,
+  applyReview,
+  setReviewEnabled,
   loadSites,
   loadRaions,
   setAdminWords,

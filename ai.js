@@ -90,7 +90,10 @@ const cfg = {
 
 const state = {
   lastParse: 0,
+  lastReview: 0,
   lastAssess: 0,
+  reviewed: 0,
+  rejected: 0,
   assessment: null,     // { text, targets, at, model }
   parsedTotal: 0,
   addedTotal: 0,
@@ -222,6 +225,38 @@ async function parseLines(lines) {
   return Array.isArray(items) ? items : [];
 }
 
+/* ─────────────── задача 1б: перевірка сумнівних розборів ─────────────── */
+
+const REVIEW_SYS = `Ти перевіряєш, чи правильно програма зрозуміла повідомлення
+українського каналу моніторингу повітряної обстановки.
+
+Для кожного елемента дано: текст повідомлення і те, що програма з нього витягла
+(населений пункт, клас засобу, дію). Твоя задача — сказати, чи це справді
+доповідь про повітряну ціль саме в цьому місці.
+
+Відповідай JSON: {"verdicts":[{"id":"...","ok":true|false}]}
+
+Став false, якщо:
+- це не про повітряну обстановку (емоція, подяка, реклама, побутова розмова);
+- програма прийняла за назву міста звичайне слово («Блін», «Добре», «Народ»);
+- місце в тексті взагалі не згадане.
+
+Став true, якщо це справді доповідь про ціль у названому місці —
+навіть коли фраза дуже коротка («Бровари», «1х Позняки»).`;
+
+async function review(items) {
+  if (!items.length) return {};
+  const user = JSON.stringify(items);
+  const raw = await ask(REVIEW_SYS, 'Перевір, поверни json:\n' + user);
+  const j = parseJson(raw);
+  const list = (j && (j.verdicts || j.items || (Array.isArray(j) ? j : null))) || [];
+  const out = {};
+  for (const v of list) {
+    if (v && v.id != null) out[String(v.id)] = v.ok === true;
+  }
+  return out;
+}
+
 /* ─────────────── задача 2: оцінка обстановки ─────────────── */
 
 const ASSESS_SYS = `Ти черговий аналітик повітряної обстановки. Тобі дають перелік цілей,
@@ -312,6 +347,20 @@ async function tick(deps) {
       }
     }
 
+    // 1б. перевірка сумнівних розборів
+    if (deps.takeForReview && now - state.lastReview >= 15_000) {
+      const items = deps.takeForReview(20);
+      if (items.length) {
+        state.lastReview = now;
+        const verdicts = await review(items);
+        const r = deps.applyReview(verdicts);
+        state.reviewed += items.length;
+        state.rejected += r.rejected;
+      } else if (deps.applyReview) {
+        deps.applyReview({}); // випустити тих, хто зачекався
+      }
+    }
+
     // 2. оцінка обстановки — лише коли є про що говорити
     if (now - state.lastAssess >= cfg.assessMs && deps.tracks.length >= 3) {
       state.lastAssess = now;
@@ -345,7 +394,13 @@ function snapshot() {
     providerName: PROVIDERS[cfg.provider] ? PROVIDERS[cfg.provider].name : null,
     model: cfg.model || (PROVIDERS[cfg.provider] && PROVIDERS[cfg.provider].model),
     assessment: state.assessment,
-    stats: { calls: state.calls, linesSent: state.parsedTotal, contactsAdded: state.addedTotal },
+    stats: {
+      calls: state.calls,
+      linesSent: state.parsedTotal,
+      contactsAdded: state.addedTotal,
+      reviewed: state.reviewed,
+      rejected: state.rejected,
+    },
     lastError: state.lastError,
     providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, name: p.name, free: !!p.free, noKey: !!p.noKey })),
   };

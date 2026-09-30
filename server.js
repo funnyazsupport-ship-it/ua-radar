@@ -524,6 +524,8 @@ async function pollAi() {
   await ai.tick({
     takeUnparsed: monitor.takeUnparsed,
     addAiContacts: monitor.addAiContacts,
+    takeForReview: monitor.takeForReview,
+    applyReview: monitor.applyReview,
     knownCity: (n) => {
       const k = String(n).toLowerCase().replace(/['’ʼ]/g, "'").trim();
       return BIG_CITIES.some((c) => c.n.toLowerCase().replace(/['’ʼ]/g, "'") === k);
@@ -572,7 +574,8 @@ server.listen(PORT, () => {
   if (ai.configure(ROOT)) {
     const a = ai.snapshot();
     log(`ШІ: увімкнено, ${a.providerName} / ${a.model}`);
-    setInterval(pollAi, 30_000);
+    monitor.setReviewEnabled(true);
+    setInterval(pollAi, 15_000);
   } else {
     log('ШІ: вимкнено (немає ключа в config.json)');
   }
