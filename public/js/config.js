@@ -285,5 +285,23 @@ window.CFG = (function () {
     { n: 'АЗОВСЬКЕ МОРЕ', ll: [46.1, 36.9], sea: true },
   ];
 
-  return { THREATS, ORIGINS, CITIES, NPP, FRONTLINE_REGIONS, REACH, MAP, NEIGHBOUR_LABELS };
+  /**
+   * Адреса сервера. Порожня — той самий домен (звичайний запуск).
+   * Коли інтерфейс лежить окремо, наприклад на GitHub Pages, сюди
+   * записується адреса машини, де крутиться server.js.
+   */
+  function apiBase() {
+    try {
+      const q = new URLSearchParams(location.search).get('api');
+      if (q) {
+        localStorage.setItem('ua-radar:api', q.replace(/\/$/, ''));
+        return q.replace(/\/$/, '');
+      }
+      return localStorage.getItem('ua-radar:api') || '';
+    } catch {
+      return '';
+    }
+  }
+
+  return { THREATS, ORIGINS, CITIES, NPP, FRONTLINE_REGIONS, REACH, MAP, NEIGHBOUR_LABELS, apiBase };
 })();

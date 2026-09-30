@@ -1,0 +1,53 @@
+# Публікація інтерфейсу на GitHub Pages.
+#
+# Pages віддає корінь репозиторію, а сама мапа лежить у public/ —
+# тому без збірки там показувався README. Ця дія складає сайт:
+# public/ стає коренем, а поруч кладуться геодані.
+#
+# Сервер (server.js) Pages не запускає: сторінка спитає адресу,
+# де він працює, і ходитиме туди за тривогами й цілями.
+name: Сайт на Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Скласти сайт
+        run: |
+          mkdir -p site/data
+          cp -r public/* site/
+          # лише те, що потрібне браузеру: places.json на 5 МБ
+          # читає сервер, у сайт його класти нема сенсу
+          cp data/oblasts.geojson data/neighbors.geojson data/raions.geojson data/cities.json site/data/
+          ls -la site site/data
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

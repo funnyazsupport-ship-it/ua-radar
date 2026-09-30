@@ -16,6 +16,9 @@
   };
 
   const POLL_MS = 6_000;
+  /** Порожньо — свій домен; інакше адреса машини із server.js. */
+  const BASE = CFG.apiBase();
+  const api = (p) => BASE + p;
   /** Тривога, що триває довше за це, — не подія, а стан окупованої території. */
   const PERMANENT_AFTER = 14 * 24 * 3600_000;
 
@@ -1478,7 +1481,7 @@
 
   async function pollMonitor() {
     try {
-      const res = await fetch('/api/monitor', { cache: 'no-store' });
+      const res = await fetch(api('/api/monitor'), { cache: 'no-store' });
       const data = await res.json();
       S.contacts = data.contacts || [];
       S.tracks = data.tracks || [];
@@ -1908,10 +1911,10 @@
 
   async function loadGeo() {
     const [oblasts, neighbors, raions, cityFile] = await Promise.all([
-      fetch('/data/oblasts.geojson').then((r) => r.json()),
-      fetch('/data/neighbors.geojson').then((r) => r.json()).catch(() => null),
-      fetch('/data/raions.geojson').then((r) => r.json()).catch(() => null),
-      fetch('/data/cities.json').then((r) => r.json()).catch(() => null),
+      fetch('data/oblasts.geojson').then((r) => r.json()),
+      fetch('data/neighbors.geojson').then((r) => r.json()).catch(() => null),
+      fetch('data/raions.geojson').then((r) => r.json()).catch(() => null),
+      fetch('data/cities.json').then((r) => r.json()).catch(() => null),
     ]);
     // повний перелік міст із довідника; вбудований список — резерв
     S.cities = cityFile && cityFile.cities && cityFile.cities.length
@@ -1939,7 +1942,7 @@
 
   async function pollAlerts(first) {
     try {
-      const res = await fetch('/api/alerts', { cache: 'no-store' });
+      const res = await fetch(api('/api/alerts'), { cache: 'no-store' });
       const data = await res.json();
       if (!data.ok) throw new Error(data.warning || 'сервер не має даних');
 
@@ -1986,12 +1989,17 @@
       S.failures++;
       setConn('err', S.failures > 2 ? 'немає зв’язку' : 'повтор…');
       console.warn('не вдалося отримати тривоги:', e.message);
+      // інтерфейс може лежати окремо від сервера (GitHub Pages) —
+      // тоді треба спитати, де саме сервер
+      if (S.failures >= 2 && !BASE && !/^localhost$|^127\.|^\[::1\]$/.test(location.hostname)) {
+        showServerSetup();
+      }
     }
   }
 
   async function loadFrontline() {
     try {
-      const res = await fetch('/api/frontline', { cache: 'no-store' });
+      const res = await fetch(api('/api/frontline'), { cache: 'no-store' });
       const fc = await res.json();
       renderFrontline(fc);
       if (!S.layers.front) layerFront.remove();
@@ -2088,6 +2096,40 @@
       row.title = t.full;
       lg.appendChild(row);
     }
+  }
+
+  /**
+   * Коли сторінка відкрита не з того ж сервера (наприклад із GitHub
+   * Pages), вона не знає, куди ходити за даними. Питаємо один раз і
+   * запамʼятовуємо.
+   */
+  function showServerSetup() {
+    if (document.getElementById('srvSetup')) return;
+    const d = el('div', 'srv-setup');
+    d.id = 'srvSetup';
+    d.innerHTML = `
+      <div class="srv-card">
+        <h3>Де працює сервер?</h3>
+        <p>Ця сторінка — лише інтерфейс. Дані про тривоги й цілі збирає
+        <code>server.js</code>, і його адресу треба вказати: локально це
+        <code>http://localhost:8787</code>, а якщо він відкритий назовні —
+        адреса тунелю чи хостингу.</p>
+        <input id="srvInput" type="url" placeholder="http://localhost:8787" autocomplete="off">
+        <button id="srvSave">Підключитися</button>
+        <small>Адреса збережеться у цьому браузері. Можна також передати її
+        в посиланні: <code>?api=https://…</code></small>
+      </div>`;
+    document.body.appendChild(d);
+    const inp = d.querySelector('#srvInput');
+    inp.focus();
+    const save = () => {
+      const v = inp.value.trim().replace(/\/$/, '');
+      if (!v) return;
+      try { localStorage.setItem('ua-radar:api', v); } catch { /* приватний режим */ }
+      location.reload();
+    };
+    d.querySelector('#srvSave').addEventListener('click', save);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
   }
 
   /* ═══════════════ старт ═══════════════ */

@@ -394,6 +394,9 @@ function sendJson(res, obj, code = 200) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Cache-Control': 'no-store',
+    // дані публічні й лише на читання, тож фронтенд може жити
+    // на іншому домені — наприклад на GitHub Pages
+    'Access-Control-Allow-Origin': '*',
   });
   res.end(body);
 }
@@ -408,6 +411,7 @@ function sendFile(res, file) {
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Content-Length': st.size,
+      'Access-Control-Allow-Origin': '*',
       // статика не кешується: інакше правки в css/js не видно без хард-релоуду
       'Cache-Control': ext === '.geojson' ? 'public, max-age=3600' : 'no-store',
     });
@@ -427,6 +431,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Max-Age': '86400',
+      });
+      return res.end();
+    }
+
     if (pathname === '/api/alerts') {
       if (!state.alerts && !state.alertsError) await pollAlerts();
       return sendJson(res, {
