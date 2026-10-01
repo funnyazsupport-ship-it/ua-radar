@@ -303,5 +303,13 @@ window.CFG = (function () {
     }
   }
 
-  return { THREATS, ORIGINS, CITIES, NPP, FRONTLINE_REGIONS, REACH, MAP, NEIGHBOUR_LABELS, apiBase };
+  /**
+   * Сервер, який ми пробуємо підняти самі, якщо користувач свого не
+   * вказав. На безкоштовному тарифі він засинає без відвідувачів, тож
+   * сторінка спершу показує знімок, а потім перемикається на живий,
+   * щойно той прокинеться.
+   */
+  const LIVE_SERVER = 'https://ua-radar.onrender.com';
+
+  return { THREATS, ORIGINS, CITIES, NPP, FRONTLINE_REGIONS, REACH, MAP, NEIGHBOUR_LABELS, apiBase, LIVE_SERVER };
 })();

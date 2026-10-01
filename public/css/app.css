@@ -1247,3 +1247,4 @@ path.ob-on { filter: drop-shadow(0 0 3px currentColor); }
   color: var(--text);
 }
 @media (max-width: 900px) { .static-note { bottom: 58px; font-size: 10px; } }
+.static-note .sn-wake { color: var(--text-faint); font-size: 10px; }

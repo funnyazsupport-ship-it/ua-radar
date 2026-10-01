@@ -17,7 +17,7 @@
 
   const POLL_MS = 6_000;
   /** Порожньо — свій домен; інакше адреса машини із server.js. */
-  const BASE = CFG.apiBase();
+  let BASE = CFG.apiBase();
   const api = (p) => BASE + p;
   /** Тривога, що триває довше за це, — не подія, а стан окупованої території. */
   const PERMANENT_AFTER = 14 * 24 * 3600_000;
@@ -41,6 +41,7 @@
     ai: null,           // оцінка обстановки від моделі
     staticMode: false,  // працюємо зі знімка, без сервера
     frontDrawn: false,
+    snapTimer: null,
     trackStats: null,
     contactStates: [],  // після числення шляху
     feed: [],           // стрічка повідомлень каналів
@@ -1981,10 +1982,48 @@
       document.body.appendChild(n);
     }
     n.innerHTML =
-      `<b>Знімок із GitHub</b> · оновлено ${ageLabel(ageMin)} ` +
-      `<button id="goLive">підключити свій сервер</button>`;
+      `<b>Знімок із GitHub</b> · оновлено ${ageLabel(ageMin)}` +
+      `<span class="sn-wake">живий сервер прокидається…</span>` +
+      `<button id="goLive">свій сервер</button>`;
     const btn = n.querySelector('#goLive');
     if (btn) btn.addEventListener('click', () => { n.remove(); showServerSetup(); });
+  }
+
+  /**
+   * Поки показуємо знімок, у фоні стукаємо в живий сервер. Він на
+   * безкоштовному тарифі засинає, і перше пробудження триває близько
+   * пів хвилини — тому мапа не чекає його, а малює знімок одразу й
+   * перемикається, щойно сервер відповів.
+   */
+  let liveProbe = null;
+
+  async function probeLive() {
+    if (!S.staticMode || !CFG.LIVE_SERVER) return;
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 8000);
+      const res = await fetch(CFG.LIVE_SERVER + '/api/status', { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(t);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      await res.json();
+
+      // сервер піднявся — переходимо на реальний час
+      clearInterval(liveProbe);
+      clearInterval(S.snapTimer);
+      S.staticMode = false;
+      BASE = CFG.LIVE_SERVER;
+      const note = document.getElementById('staticNote');
+      if (note) note.remove();
+      setConn('wait', 'сервер відповів…');
+      await pollAlerts(true);
+      loadFrontline();
+      pollMonitor();
+      setInterval(() => pollAlerts(false), POLL_MS);
+      setInterval(pollMonitor, 6_000);
+      setInterval(loadFrontline, 10 * 60_000);
+    } catch {
+      /* ще спить — лишаємось на знімку */
+    }
   }
 
   async function pollSnapshot() {
@@ -2264,7 +2303,10 @@
     setTimeout(() => $('#boot').remove(), 600);
 
     if (S.staticMode) {
-      setInterval(pollSnapshot, 60_000);
+      S.snapTimer = setInterval(pollSnapshot, 60_000);
+      // будимо живий сервер і чекаємо, поки підніметься
+      probeLive();
+      liveProbe = setInterval(probeLive, 20_000);
     } else {
       sub.textContent = 'лінія фронту…';
       loadFrontline();
