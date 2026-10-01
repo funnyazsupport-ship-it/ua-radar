@@ -1216,3 +1216,34 @@ path.ob-on { filter: drop-shadow(0 0 3px currentColor); }
   .srv-bar { bottom: 58px; font-size: 10.5px; }
   .srv-bar input { width: 140px; }
 }
+
+/* смуга «дані зі знімка, не в реальному часі» */
+.static-note {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 7900;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(12, 16, 23, 0.95);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  backdrop-filter: blur(9px);
+  box-shadow: var(--sh);
+}
+.static-note b { color: var(--blue); }
+.static-note button {
+  background: #17222f;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+  color: var(--text);
+}
+@media (max-width: 900px) { .static-note { bottom: 58px; font-size: 10px; } }

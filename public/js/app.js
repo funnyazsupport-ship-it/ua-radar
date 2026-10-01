@@ -39,6 +39,8 @@
     intercepts: [],     // збиті цілі
     watch: null,        // місто, за яким стежимо
     ai: null,           // оцінка обстановки від моделі
+    staticMode: false,  // працюємо зі знімка, без сервера
+    frontDrawn: false,
     trackStats: null,
     contactStates: [],  // після числення шляху
     feed: [],           // стрічка повідомлень каналів
@@ -1907,6 +1909,97 @@
     }
   }
 
+
+  /* ═══════════════ режим без сервера ═══════════════ */
+
+  /**
+   * Сторінка на GitHub Pages працює й без server.js: GitHub Actions
+   * раз на кілька хвилин складають знімок обстановки й кладуть його в
+   * гілку data. Тут ми його читаємо.
+   *
+   * Це компроміс: дані відстають на час між запусками розкладу. Якщо
+   * користувач вказав адресу живого сервера — вона має перевагу.
+   */
+  function snapshotUrl() {
+    const gh = location.hostname.match(/^([^.]+)\.github\.io$/);
+    const repo = location.pathname.split('/').filter(Boolean)[0];
+    if (gh && repo) {
+      return `https://raw.githubusercontent.com/${gh[1]}/${repo}/data/snapshot.json`;
+    }
+    return 'snapshot.json'; // поруч зі сторінкою
+  }
+
+  const PERMANENT = 14 * 24 * 3600_000;
+
+  function applySnapshot(snap) {
+    const t = Date.now();
+    S.regions = (snap.alerts && snap.alerts.regions) || [];
+    for (const r of S.regions) {
+      r.permanent = !!(r.alert && r.since && t - r.since > PERMANENT);
+    }
+    S.tracks = snap.tracks || [];
+    S.intercepts = snap.intercepts || [];
+    S.trackStats = snap.trackStats || null;
+    S.channels = snap.channels || [];
+    S.feed = snap.messages || [];
+    S.ext = {
+      raionLevels: (snap.external && snap.external.raionLevels) || [],
+      tracks: [],
+      sources: (snap.external && snap.external.sources) || [],
+    };
+    S.est = TE.estimate(S.regions, S.index);
+
+    for (const c of S.cities) {
+      const r = S.regions.find((x) => x.name === c.obl);
+      c.alert = !!(r && r.alert);
+    }
+
+    if (snap.frontline && !S.frontDrawn) {
+      renderFrontline(snap.frontline);
+      S.frontDrawn = true;
+    }
+
+    renderContacts();
+    renderIntercepts();
+    restyleOblasts();
+    renderRegionList();
+    renderTargetList();
+    renderFeed();
+    renderWatchBar();
+    renderTop();
+
+    const ageMin = (Date.now() - (snap.builtAt || 0)) / 60_000;
+    setConn(ageMin < 12 ? 'ok' : 'wait', `GitHub · ${ageLabel(ageMin)}`);
+    showStaticNote(ageMin);
+  }
+
+  function showStaticNote(ageMin) {
+    let n = document.getElementById('staticNote');
+    if (!n) {
+      n = el('div', 'static-note');
+      n.id = 'staticNote';
+      document.body.appendChild(n);
+    }
+    n.innerHTML =
+      `<b>Знімок із GitHub</b> · оновлено ${ageLabel(ageMin)} ` +
+      `<button id="goLive">підключити свій сервер</button>`;
+    const btn = n.querySelector('#goLive');
+    if (btn) btn.addEventListener('click', () => { n.remove(); showServerSetup(); });
+  }
+
+  async function pollSnapshot() {
+    try {
+      const res = await fetch(snapshotUrl() + '?t=' + Math.floor(Date.now() / 60_000), { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      applySnapshot(await res.json());
+      S.failures = 0;
+    } catch (e) {
+      S.failures++;
+      setConn('err', 'знімок недоступний');
+      console.warn('знімок недоступний:', e.message);
+    }
+  }
+
   /* ═══════════════ дані ═══════════════ */
 
   async function loadGeo() {
@@ -1991,9 +2084,7 @@
       console.warn('не вдалося отримати тривоги:', e.message);
       // інтерфейс може лежати окремо від сервера (GitHub Pages) —
       // тоді треба спитати, де саме сервер
-      if (S.failures >= 2 && !BASE && !/^localhost$|^127\.|^\[::1\]$/.test(location.hostname)) {
-        showServerSetup();
-      }
+      if (S.failures >= 2 && !BASE && !S.staticMode) showServerSetup();
     }
   }
 
@@ -2156,22 +2247,34 @@
     renderNpp();
     renderOrigins();
 
-    sub.textContent = 'стан повітряних тривог…';
-    await pollAlerts(true);
+    // Без указаної адреси сервера сторінка живе зі статичного знімка,
+    // який складають GitHub Actions. Так мапа працює в будь-кого,
+    // хоч і з відставанням у кілька хвилин.
+    S.staticMode = !BASE;
+
+    if (S.staticMode) {
+      sub.textContent = 'знімок обстановки…';
+      await pollSnapshot();
+    } else {
+      sub.textContent = 'стан повітряних тривог…';
+      await pollAlerts(true);
+    }
 
     $('#boot').classList.add('done');
     setTimeout(() => $('#boot').remove(), 600);
 
-    sub.textContent = 'лінія фронту…';
-    loadFrontline();
-
-    sub.textContent = 'канали моніторингу…';
-    pollMonitor();
-
-    setInterval(() => pollAlerts(false), POLL_MS);
-    setInterval(pollMonitor, 6_000);
+    if (S.staticMode) {
+      setInterval(pollSnapshot, 60_000);
+    } else {
+      sub.textContent = 'лінія фронту…';
+      loadFrontline();
+      sub.textContent = 'канали моніторингу…';
+      pollMonitor();
+      setInterval(() => pollAlerts(false), POLL_MS);
+      setInterval(pollMonitor, 6_000);
+      setInterval(loadFrontline, 10 * 60_000);
+    }
     setInterval(tickTimers, 1000);
-    setInterval(loadFrontline, 10 * 60_000);
 
     window.RADAR = { S, map, TE, startSim, stopSim, renderIntercepts, declutterLabels, renderContacts, setWatch, watchThreat };
   }
