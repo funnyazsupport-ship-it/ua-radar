@@ -32,6 +32,7 @@ jobs:
         run: |
           mkdir -p site/data
           cp -r public/* site/
+          touch site/.nojekyll
           # лише те, що потрібне браузеру: places.json на 5 МБ
           # читає сервер, у сайт його класти нема сенсу
           cp data/oblasts.geojson data/neighbors.geojson data/raions.geojson data/cities.json site/data/

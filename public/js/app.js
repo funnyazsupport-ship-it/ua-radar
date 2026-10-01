@@ -2104,24 +2104,18 @@
    * запамʼятовуємо.
    */
   function showServerSetup() {
-    if (document.getElementById('srvSetup')) return;
-    const d = el('div', 'srv-setup');
-    d.id = 'srvSetup';
+    if (document.getElementById('srvBar')) return;
+    const d = el('div', 'srv-bar');
+    d.id = 'srvBar';
     d.innerHTML = `
-      <div class="srv-card">
-        <h3>Де працює сервер?</h3>
-        <p>Ця сторінка — лише інтерфейс. Дані про тривоги й цілі збирає
-        <code>server.js</code>, і його адресу треба вказати: локально це
-        <code>http://localhost:8787</code>, а якщо він відкритий назовні —
-        адреса тунелю чи хостингу.</p>
-        <input id="srvInput" type="url" placeholder="http://localhost:8787" autocomplete="off">
-        <button id="srvSave">Підключитися</button>
-        <small>Адреса збережеться у цьому браузері. Можна також передати її
-        в посиланні: <code>?api=https://…</code></small>
-      </div>`;
+      <span class="srv-txt"><b>Немає звʼязку з сервером.</b>
+      Ця сторінка — лише інтерфейс; дані збирає <code>server.js</code>.</span>
+      <input id="srvInput" type="url" value="http://localhost:8787" spellcheck="false">
+      <button id="srvSave">Підключити</button>
+      <button class="srv-hide" title="Сховати">×</button>`;
     document.body.appendChild(d);
+
     const inp = d.querySelector('#srvInput');
-    inp.focus();
     const save = () => {
       const v = inp.value.trim().replace(/\/$/, '');
       if (!v) return;
@@ -2129,6 +2123,7 @@
       location.reload();
     };
     d.querySelector('#srvSave').addEventListener('click', save);
+    d.querySelector('.srv-hide').addEventListener('click', () => d.remove());
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
   }
 
