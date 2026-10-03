@@ -1,0 +1,51 @@
+# Збір обстановки за розкладом — режим «усе на GitHub».
+#
+# Pages не вміє запускати server.js, тому обстановку збирає ця дія:
+# раз на 5 хвилин читає канали й API, складає snapshot.json і кладе
+# його в гілку data. Сторінка на Pages читає цей файл напряму з
+# raw.githubusercontent.com і працює в будь-кого, без сервера.
+#
+# Гілка data перезаписується одним комітом щоразу (force-push), тож
+# історія не роздувається від сотень оновлень на добу.
+#
+# Свіжість: мінімальний крок cron у GitHub — 5 хвилин, і запуск часто
+# ще й затримується. Для мапи тривог це прийнятно, для ведення цілей
+# замало. Кому потрібен реальний час — запускає server.js.
+name: Збір обстановки
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Зібрати знімок
+        run: node collect.js snapshot.json
+
+      - name: Покласти у гілку data
+        run: |
+          git config user.name "ua-radar-bot"
+          git config user.email "actions@github.com"
+          # окрема гілка без історії: щоразу один коміт замість сотень
+          git checkout --orphan data-tmp
+          git rm -rq --cached . || true
+          git add -f snapshot.json
+          git commit -q -m "обстановка на $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push -q --force origin data-tmp:data

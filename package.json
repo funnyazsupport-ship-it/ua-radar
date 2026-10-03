@@ -1,0 +1,14 @@
+{
+  "name": "ua-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Мапа повітряних тривог України: стан по областях, оцінка класу загрози, напрямок підльоту, лінія фронту",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
