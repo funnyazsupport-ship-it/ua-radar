@@ -1,0 +1,10 @@
+.git
+.github
+cache
+config.json
+snapshot.json
+node_modules
+tools-diag.js
+link-channel.js
+*.md
+.claude
